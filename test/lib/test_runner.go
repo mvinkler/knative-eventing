@@ -17,17 +17,18 @@ limitations under the License.
 package lib
 
 import (
+	"bytes"
 	"fmt"
+	"github.com/pkg/errors"
+	"k8s.io/apiserver/pkg/storage/names"
+	"os/exec"
 	"testing"
 	"time"
-
-	"knative.dev/eventing/pkg/utils"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/apiserver/pkg/storage/names"
 	pkgTest "knative.dev/pkg/test"
 	"knative.dev/pkg/test/helpers"
 
@@ -127,6 +128,8 @@ func makeK8sNamespace(baseFuncName string) string {
 
 // TearDown will delete created names using clients.
 func TearDown(client *Client) {
+
+	client.T.Logf("TEARDOWN")
 	// Dump the events in the namespace
 	el, err := client.Kube.Kube.CoreV1().Events(client.Namespace).List(metav1.ListOptions{})
 	if err != nil {
@@ -142,8 +145,49 @@ func TearDown(client *Client) {
 	}
 }
 
+// Oc type
+type Oc struct {
+	namespace string
+}
+
+// Run the 'oc' CLI with args
+func (o Oc) Run(args ...string) (string, error) {
+	return RunOc(o.namespace, args...)
+}
+
+// RunOc runs "oc" in a given namespace
+func RunOc(namespace string, args ...string) (string, error) {
+	if namespace != "" {
+		args = append(args, "--namespace", namespace)
+	}
+	stdout, stderr, err := runCli("oc", args)
+	if err != nil {
+		return stdout, errors.Wrap(err, fmt.Sprintf("stderr: %s", stderr))
+	}
+	return stdout, nil
+}
+
+func runCli(cli string, args []string) (string, string, error) {
+	var stderr bytes.Buffer
+	var stdout bytes.Buffer
+
+	cmd := exec.Command(cli, args...)
+	cmd.Stderr = &stderr
+	cmd.Stdout = &stdout
+	cmd.Stdin = nil
+
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
 // CreateNamespaceIfNeeded creates a new namespace if it does not exist.
 func CreateNamespaceIfNeeded(t *testing.T, client *Client, namespace string) {
+
+	var (
+		errOc     error
+		outOc     string
+	)
+
 	_, err := client.Kube.Kube.CoreV1().Namespaces().Get(namespace, metav1.GetOptions{})
 
 	if err != nil && apierrs.IsNotFound(err) {
@@ -151,7 +195,15 @@ func CreateNamespaceIfNeeded(t *testing.T, client *Client, namespace string) {
 		_, err = client.Kube.Kube.CoreV1().Namespaces().Create(nsSpec)
 
 		if err != nil {
-			t.Fatalf("Failed to create Namespace: %s; %v", namespace, err)
+			t.Logf("Failed to create Namespace: %s; %v", namespace, err)
+			t.Logf("Using oc new-project instead")
+
+			outOc, errOc = Oc{}.Run("new-project", namespace)
+			if errOc == nil {
+				t.Logf("stdout: %s", outOc)
+			} else {
+				t.Fatalf("Failed to create new project: %s; %v", namespace, err)
+			}
 		}
 
 		// https://github.com/kubernetes/kubernetes/issues/66689
@@ -165,10 +217,10 @@ func CreateNamespaceIfNeeded(t *testing.T, client *Client, namespace string) {
 		// "kn-eventing-test-pull-secret" then use that as the ImagePullSecret
 		// on the "default" ServiceAccount in this new Namespace.
 		// This is needed for cases where the images are in a private registry.
-		_, err := utils.CopySecret(client.Kube.Kube.CoreV1(), "default", TestPullSecretName, namespace, "default")
-		if err != nil && !apierrs.IsNotFound(err) {
-			t.Fatalf("error copying the secret into ns %q: %s", namespace, err)
-		}
+		// _, err := utils.CopySecret(client.Kube.Kube.CoreV1(), "default", TestPullSecretName, namespace, "default")
+		//if err != nil && !apierrs.IsNotFound(err) {
+		//	t.Fatalf("error copying the secret into ns %q: %s", namespace, err)
+		//}
 	}
 }
 
@@ -185,9 +237,31 @@ func waitForServiceAccountExists(client *Client, name, namespace string) error {
 
 // DeleteNameSpace deletes the namespace that has the given name.
 func DeleteNameSpace(client *Client) error {
+
+	client.T.Logf("Deleting Namespace: %s", client.Namespace)
+
+	var (
+		errOc     error
+		outOc     string
+	)
+
 	_, err := client.Kube.Kube.CoreV1().Namespaces().Get(client.Namespace, metav1.GetOptions{})
 	if err == nil || !apierrs.IsNotFound(err) {
-		return client.Kube.Kube.CoreV1().Namespaces().Delete(client.Namespace, nil)
+		errKube := client.Kube.Kube.CoreV1().Namespaces().Delete(client.Namespace, nil)
+
+		if errKube != nil {
+			client.T.Logf("Failed to delete Namespace: %s; %v", client.Namespace, errKube)
+			client.T.Logf("Using oc delete project instead")
+
+			outOc, errOc = Oc{}.Run("delete", "project", client.Namespace)
+			if errOc == nil {
+				client.T.Logf("stdout: %s", outOc)
+			} else {
+				client.T.Logf("TODO: Failed to delete project: %s; %v", client.Namespace, errOc)
+			}
+			return errOc
+		}
+		return errKube
 	}
 	return err
 }

@@ -35,7 +35,6 @@ import (
 	legacysourcesv1alpha1 "knative.dev/eventing/pkg/apis/legacysources/v1alpha1"
 	messagingv1alpha1 "knative.dev/eventing/pkg/apis/messaging/v1alpha1"
 	sourcesv1alpha1 "knative.dev/eventing/pkg/apis/sources/v1alpha1"
-	"knative.dev/eventing/pkg/utils"
 	"knative.dev/eventing/test/lib/duck"
 	"knative.dev/eventing/test/lib/resources"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
@@ -465,10 +464,10 @@ func (client *Client) CreateServiceAccountOrFail(saName string) {
 	// "kn-eventing-test-pull-secret" then use that as the ImagePullSecret
 	// on the new ServiceAccount we just created.
 	// This is needed for cases where the images are in a private registry.
-	_, err := utils.CopySecret(client.Kube.Kube.CoreV1(), "default", TestPullSecretName, namespace, saName)
-	if err != nil && !errors.IsNotFound(err) {
-		client.T.Fatalf("Error copying the secret: %s", err)
-	}
+	//_, err := utils.CopySecret(client.Kube.Kube.CoreV1(), "default", TestPullSecretName, namespace, saName)
+	//if err != nil && !errors.IsNotFound(err) {
+	//	client.T.Fatalf("Error copying the secret: %s", err)
+	//}
 }
 
 // CreateClusterRoleOrFail creates the given ClusterRole or fail the test if there is an error.
