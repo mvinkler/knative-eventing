@@ -17,8 +17,11 @@ limitations under the License.
 package lib
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"github.com/pkg/errors"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -232,6 +235,41 @@ func TearDown(client *Client) {
 	}
 }
 
+// Oc type
+type Oc struct {
+	namespace string
+}
+
+// Run the 'oc' CLI with args
+func (o Oc) Run(args ...string) (string, error) {
+	return RunOc(o.namespace, args...)
+}
+
+// RunOc runs "oc" in a given namespace
+func RunOc(namespace string, args ...string) (string, error) {
+	if namespace != "" {
+		args = append(args, "--namespace", namespace)
+	}
+	stdout, stderr, err := runCli("oc", args)
+	if err != nil {
+		return stdout, errors.Wrap(err, fmt.Sprintf("stderr: %s", stderr))
+	}
+	return stdout, nil
+}
+
+func runCli(cli string, args []string) (string, string, error) {
+	var stderr bytes.Buffer
+	var stdout bytes.Buffer
+
+	cmd := exec.Command(cli, args...)
+	cmd.Stderr = &stderr
+	cmd.Stdout = &stdout
+	cmd.Stdin = nil
+
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
 func formatEvent(e *corev1.Event) string {
 	return strings.Join([]string{`Event{`,
 		`ObjectMeta:` + strings.Replace(strings.Replace(e.ObjectMeta.String(), "ObjectMeta", "v1.ObjectMeta", 1), `&`, ``, 1),
@@ -255,6 +293,12 @@ func formatEvent(e *corev1.Event) string {
 
 // CreateNamespaceIfNeeded creates a new namespace if it does not exist.
 func CreateNamespaceIfNeeded(t *testing.T, client *Client, namespace string) {
+
+	var (
+		errOc     error
+		outOc     string
+	)
+
 	_, err := client.Kube.CoreV1().Namespaces().Get(context.Background(), namespace, metav1.GetOptions{})
 
 	if err != nil && apierrs.IsNotFound(err) {
@@ -262,7 +306,15 @@ func CreateNamespaceIfNeeded(t *testing.T, client *Client, namespace string) {
 		_, err = client.Kube.CoreV1().Namespaces().Create(context.Background(), nsSpec, metav1.CreateOptions{})
 
 		if err != nil {
-			t.Fatalf("Failed to create Namespace: %s; %v", namespace, err)
+			t.Logf("Failed to create Namespace: %s; %v", namespace, err)
+			t.Logf("Using oc new-project instead")
+
+			outOc, errOc = Oc{}.Run("new-project", namespace)
+			if errOc == nil {
+				t.Logf("stdout: %s", outOc)
+			} else {
+				t.Fatalf("Failed to create new project: %s; %v", namespace, err)
+			}
 		}
 
 		// https://github.com/kubernetes/kubernetes/issues/66689
@@ -296,9 +348,32 @@ func waitForServiceAccountExists(client *Client, name, namespace string) error {
 
 // DeleteNameSpace deletes the namespace that has the given name.
 func DeleteNameSpace(client *Client) error {
+
+	client.T.Logf("Deleting Namespace: %s", client.Namespace)
+
+	var (
+		errOc     error
+		outOc     string
+	)
+
 	_, err := client.Kube.CoreV1().Namespaces().Get(context.Background(), client.Namespace, metav1.GetOptions{})
 	if err == nil || !apierrs.IsNotFound(err) {
-		return client.Kube.CoreV1().Namespaces().Delete(context.Background(), client.Namespace, metav1.DeleteOptions{})
+		//return client.Kube.CoreV1().Namespaces().Delete(context.Background(), client.Namespace, metav1.DeleteOptions{})
+		errKube := client.Kube.CoreV1().Namespaces().Delete(context.Background(), client.Namespace, metav1.DeleteOptions{})
+
+		if errKube != nil {
+			client.T.Logf("Failed to delete Namespace: %s; %v", client.Namespace, errKube)
+			client.T.Logf("Using oc delete project instead")
+
+			outOc, errOc = Oc{}.Run("delete", "project", client.Namespace)
+			if errOc == nil {
+				client.T.Logf("stdout: %s", outOc)
+			} else {
+				client.T.Logf("TODO: Failed to delete project: %s; %v", client.Namespace, errOc)
+			}
+			return errOc
+		}
+		return errKube
 	}
 	return err
 }
