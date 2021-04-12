@@ -38,8 +38,6 @@ import (
 	"knative.dev/pkg/test/helpers"
 	"knative.dev/pkg/test/prow"
 
-	"knative.dev/eventing/pkg/utils"
-
 	// Mysteriously required to support GCP auth (required by k8s libs).
 	// Apparently just importing it is enough. @_@ side effects @_@.
 	// https://github.com/kubernetes/client-go/issues/242
@@ -328,10 +326,10 @@ func CreateNamespaceIfNeeded(t *testing.T, client *Client, namespace string) {
 		// "kn-eventing-test-pull-secret" then use that as the ImagePullSecret
 		// on the "default" ServiceAccount in this new Namespace.
 		// This is needed for cases where the images are in a private registry.
-		_, err := utils.CopySecret(client.Kube.CoreV1(), "default", testPullSecretName, namespace, "default")
-		if err != nil && !apierrs.IsNotFound(err) {
-			t.Fatalf("error copying the secret into ns %q: %s", namespace, err)
-		}
+		//_, err := utils.CopySecret(client.Kube.CoreV1(), "default", testPullSecretName, namespace, "default")
+		//if err != nil && !apierrs.IsNotFound(err) {
+		//	t.Fatalf("error copying the secret into ns %q: %s", namespace, err)
+		//}
 	}
 }
 
