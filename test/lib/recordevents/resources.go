@@ -103,7 +103,7 @@ func DeployEventRecordOrFail(ctx context.Context, client *testlib.Client, name s
 		resources.WithRuleForRole(&rbacv1.PolicyRule{
 			APIGroups: []string{""},
 			Resources: []string{"events"},
-			Verbs:     []string{rbacv1.VerbAll},
+			Verbs:     []string{"create", "get", "list", "watch"},
 		}),
 	))
 	client.CreateRoleBindingOrFail(name, "Role", name, name, client.Namespace)
